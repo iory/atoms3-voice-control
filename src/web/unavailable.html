@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="%RELOAD_SECONDS%">
+<link rel="icon" href="data:,">
+<title>AtomS3 Voice: 証明書エラー</title>
+<style>
+  :root { --bg:#f5f5f2; --fg:#1b1b1b; --muted:#6b6b6b; --card:#fff; --line:#ddd; --bad:#cf222e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111; --fg:#eee; --muted:#999; --card:#1c1c1c; --line:#333; --bad:#ff6b6b; }
+  }
+  body { margin:0; padding:16px; font:16px/1.6 -apple-system, system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:520px; margin:0 auto; }
+  h1 { font-size:20px; color:var(--bad); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin:12px 0; }
+  dl { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:0; font-size:14px; }
+  dt { color:var(--muted); }
+  dd { margin:0; word-break:break-all; }
+  small { color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>%TITLE%</h1>
+  <div class="card">
+    <p>AtomS3 が local-ip.sh から有効な証明書を取得できていないため、音声認識のページ (HTTPS) を開けません。</p>
+    <ol>
+      <li>AtomS3 がインターネットに出られる Wi-Fi につながっているか確認してください。</li>
+      <li>取得できれば自動で復旧し、このページも音声認識のページに切り替わります (%RETRY_MINUTES% 分ごとに再試行)。</li>
+      <li>すぐ試すなら AtomS3 を再起動してください。</li>
+    </ol>
+  </div>
+  <dl class="card">%DETAILS%</dl>
+  <small>%RELOAD_SECONDS% 秒ごとに再読み込みします。</small>
+</main>
+</body>
+</html>

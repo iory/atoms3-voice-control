@@ -103,45 +103,56 @@ bool writeFile(const char* path, const String& content) {
   return written == content.length();
 }
 
-}  // namespace
-
-String loadTlsCredentials(time_t now, TlsCredentials& out) {
-  String cert;
-  String key;
-  String downloadError;
-  if (httpsGet(config::kCertUrl, cert, downloadError) && httpsGet(config::kKeyUrl, key, downloadError)) {
-    time_t notAfter = 0;
-    if (!inspect(cert, key, notAfter, downloadError)) {
-      downloadError = "downloaded " + downloadError;
-    } else if (notAfter <= now) {
-      downloadError = "downloaded certificate is already expired";
-    } else {
-      if (!writeFile(config::kCertCachePath, cert) || !writeFile(config::kKeyCachePath, key)) {
-        Serial.println("[tls] warning: could not write certificate cache");
-      }
-      out.certPem = cert;
-      out.keyPem = key;
-      out.notAfter = notAfter;
-      out.fromCache = false;
-      return "";
-    }
-  }
-  Serial.printf("[tls] download failed: %s\n", downloadError.c_str());
-
-  if (!readFile(config::kCertCachePath, cert) || !readFile(config::kKeyCachePath, key)) {
-    return "no certificate: " + downloadError;
-  }
-  time_t notAfter = 0;
-  String cacheError;
-  if (!inspect(cert, key, notAfter, cacheError)) {
-    return "cached " + cacheError + " (download: " + downloadError + ")";
+bool validate(const String& cert, const String& key, time_t now, time_t& notAfter, String& error) {
+  if (!inspect(cert, key, notAfter, error)) {
+    return false;
   }
   if (notAfter <= now) {
-    return "cached certificate expired (download: " + downloadError + ")";
+    error = "certificate expired";
+    return false;
   }
-  out.certPem = cert;
-  out.keyPem = key;
+  return true;
+}
+
+}  // namespace
+
+bool downloadTlsCredentials(time_t now, TlsCredentials& out, String& error) {
+  String cert;
+  String key;
+  if (!httpsGet(config::kCertUrl, cert, error) || !httpsGet(config::kKeyUrl, key, error)) {
+    return false;
+  }
+  time_t notAfter = 0;
+  if (!validate(cert, key, now, notAfter, error)) {
+    error = "downloaded " + error;
+    return false;
+  }
+  out.certPem = std::move(cert);
+  out.keyPem = std::move(key);
+  out.notAfter = notAfter;
+  out.fromCache = false;
+  return true;
+}
+
+bool loadCachedTlsCredentials(time_t now, TlsCredentials& out, String& error) {
+  String cert;
+  String key;
+  if (!readFile(config::kCertCachePath, cert) || !readFile(config::kKeyCachePath, key)) {
+    error = "no cached certificate";
+    return false;
+  }
+  time_t notAfter = 0;
+  if (!validate(cert, key, now, notAfter, error)) {
+    error = "cached " + error;
+    return false;
+  }
+  out.certPem = std::move(cert);
+  out.keyPem = std::move(key);
   out.notAfter = notAfter;
   out.fromCache = true;
-  return "";
+  return true;
+}
+
+bool saveTlsCache(const TlsCredentials& credentials) {
+  return writeFile(config::kCertCachePath, credentials.certPem) && writeFile(config::kKeyCachePath, credentials.keyPem);
 }

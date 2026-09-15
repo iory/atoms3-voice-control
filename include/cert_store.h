@@ -11,10 +11,14 @@ struct TlsCredentials {
   bool fromCache = false;
 };
 
-// Downloads the local-ip.sh wildcard certificate and key, validates them
-// (parseable, key matches certificate, not expired at `now`) and caches them in
-// LittleFS. If the download fails, a still-valid cached copy is used and
-// `fromCache` is set so the caller can report it.
-//
-// Returns an empty string on success, otherwise a human-readable error.
-String loadTlsCredentials(time_t now, TlsCredentials& out);
+// Each loader validates what it returns: both PEMs parse, the key matches the
+// certificate, and the certificate has not expired at `now`. On failure `error`
+// holds a human-readable reason and `out` is left untouched.
+
+// Fetches the local-ip.sh wildcard certificate and key.
+bool downloadTlsCredentials(time_t now, TlsCredentials& out, String& error);
+
+// Reads the copy last stored by saveTlsCache(). Sets `fromCache`.
+bool loadCachedTlsCredentials(time_t now, TlsCredentials& out, String& error);
+
+bool saveTlsCache(const TlsCredentials& credentials);

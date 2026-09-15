@@ -6,9 +6,9 @@
 <link rel="icon" href="data:,">
 <title>AtomS3 Voice</title>
 <style>
-  :root { --bg:#f5f5f2; --fg:#1b1b1b; --muted:#6b6b6b; --card:#fff; --line:#ddd; --accent:#1f6feb; --ok:#1a7f37; --bad:#cf222e; }
+  :root { --bg:#f5f5f2; --fg:#1b1b1b; --muted:#6b6b6b; --card:#fff; --line:#ddd; --accent:#1f6feb; --ok:#1a7f37; --warn:#9a6700; --bad:#cf222e; }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#111; --fg:#eee; --muted:#999; --card:#1c1c1c; --line:#333; --accent:#4c8dff; --ok:#3fb950; --bad:#ff6b6b; }
+    :root { --bg:#111; --fg:#eee; --muted:#999; --card:#1c1c1c; --line:#333; --accent:#4c8dff; --ok:#3fb950; --warn:#d29922; --bad:#ff6b6b; }
   }
   * { box-sizing: border-box; }
   body { margin:0; padding:16px; font:16px/1.5 -apple-system, system-ui, sans-serif; background:var(--bg); color:var(--fg); }
@@ -17,7 +17,9 @@
   .status { display:grid; grid-template-columns:auto 1fr; gap:2px 12px; font-size:14px; }
   .status dt { color:var(--muted); }
   .status dd { margin:0; font-variant-numeric:tabular-nums; }
-  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+  #cert-note { font-size:13px; color:var(--warn); white-space:pre-line; }
+  #cert-note:empty { display:none; }
   .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
   select, input, button { font:inherit; }
   #talk {
@@ -41,6 +43,8 @@
     <dt>SpeechRecognition</dt><dd id="st-speech"></dd>
     <dt>WebSocket</dt><dd id="st-ws">connecting</dd>
     <dt>Round trip</dt><dd id="st-rtt">-</dd>
+    <dt>証明書</dt><dd id="st-cert">-</dd>
+    <dd id="cert-note" style="grid-column:1 / -1"></dd>
   </dl>
 
   <div class="card row">
@@ -81,16 +85,55 @@ function showError(message) { $("error").textContent = message; }
 setStatus("st-secure", String(window.isSecureContext), window.isSecureContext);
 setStatus("st-speech", Recognition ? "available" : "not available", !!Recognition);
 
+// ---- Certificate ----
+const HOUR = 3600;
+const DAY = 24 * HOUR;
+const SHOW_HOURS_BELOW = 2 * DAY;
+let cert = null;  // last "cert" message plus the time it arrived
+
+function renderCert() {
+  if (!cert) return;
+  const left = cert.secondsLeft - (performance.now() - cert.receivedAt) / 1000;
+  const remaining = left < SHOW_HOURS_BELOW ? `${Math.floor(left / HOUR)}時間` : `${Math.floor(left / DAY)}日`;
+  const warning = left < cert.warnSeconds;
+  setStatus("st-cert", `あと${remaining} (${cert.notAfter}まで)`, warning ? undefined : true);
+  if (warning) $("st-cert").className = "warn";
+
+  const notes = [];
+  if (warning) notes.push("期限が近いのに自動更新できていません。AtomS3 がインターネットに出られるか確認してください。");
+  if (cert.fromCache) notes.push("起動時に証明書をダウンロードできず、保存済みのものを使っています。");
+  if (cert.lastError) notes.push(`最後の更新エラー (${cert.lastAttempt}): ${cert.lastError}`);
+  $("cert-note").textContent = notes.join("\n");
+}
+setInterval(renderCert, 60 * 1000);
+
 // ---- WebSocket ----
+const FAILURES_BEFORE_HINT = 3;
 let ws = null;
 let seq = 0;
 let reconnectDelay = 500;
+let failures = 0;
+
+// "192-168-1-50.local-ip.sh" -> "http://192.168.1.50/"
+function plainHttpUrl() {
+  return `http://${location.hostname.split(".")[0].replace(/-/g, ".")}/`;
+}
 
 function connect() {
   ws = new WebSocket(`wss://${location.host}/ws`);
+  let opened = false;
   setStatus("st-ws", "connecting");
-  ws.onopen = () => { reconnectDelay = 500; setStatus("st-ws", "open", true); };
+  ws.onopen = () => {
+    opened = true;
+    failures = 0;
+    reconnectDelay = 500;
+    setStatus("st-ws", "open", true);
+    showError("");
+  };
   ws.onclose = () => {
+    if (!opened && ++failures >= FAILURES_BEFORE_HINT) {
+      showError(`AtomS3 につながりません。証明書の期限切れで HTTPS が止まっている可能性があります。${plainHttpUrl()} を開くと理由が表示されます。`);
+    }
     setStatus("st-ws", `closed, retry in ${reconnectDelay}ms`, false);
     setTimeout(connect, reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
@@ -99,6 +142,9 @@ function connect() {
     const msg = JSON.parse(ev.data);
     if (msg.type === "ack" && typeof msg.t === "number") {
       setStatus("st-rtt", `${(performance.now() - msg.t).toFixed(0)} ms (#${msg.seq})`);
+    } else if (msg.type === "cert") {
+      cert = { ...msg, receivedAt: performance.now() };
+      renderCert();
     } else if (msg.type === "error") {
       showError(`AtomS3: ${msg.message}`);
     }
